@@ -1,6 +1,5 @@
--- 🔔 Sistema de Notificações Discord (Versão 3.0)
--- Autor: Xesteer | Melhorias por um grande modelo de linguagem
--- Robusto, totalmente modular e com configurações detalhadas por evento.
+-- 🔔 Sistema de Notificações Discord (Versão 4.0 - Completa)
+-- Autor: Xesteer | Refatorado para um script único e robusto.
 
 local HttpService = game:GetService("HttpService")
 
@@ -61,122 +60,155 @@ local eventConfigs = {
         title      = "🌖 Near Full Moon",
         color      = 0xCCCCCC, -- #CCCCCC
     },
-    -- Você pode adicionar mais eventos aqui!
 }
 
 ------------------------------------------------------------
--- MÓDULO AUXILIAR
+-- FUNÇÕES AUXILIARES
 ------------------------------------------------------------
-local Helpers = {}
 
--- Formata texto como bloco de código
-function Helpers.codeBlock(lang, text)
+-- Formata texto como bloco de código para embeds do Discord.
+local function codeBlock(lang, text)
     lang = lang or ""
     return string.format("```%s\n%s\n```", lang, text)
 end
 
--- Normaliza os campos do Embed
-function Helpers.buildFields(rawFields)
+-- Normaliza e valida os campos do Embed.
+local function buildFields(rawFields)
     local out = {}
     if type(rawFields) ~= "table" then return out end
 
     for _, f in ipairs(rawFields) do
-        if type(f) == "table" and (f.name and f.value) then
-            table.insert(out, { name = tostring(f.name), value = tostring(f.value), inline = not not f.inline })
-        elseif type(f) == "table" and #f >= 2 then
-            table.insert(out, { name = tostring(f[1]), value = tostring(f[2]), inline = not not f[3] })
+        if type(f) == "table" and (f.name and f.value or (f[1] and f[2])) then
+            local name  = f.name or f[1]
+            local value = f.value or f[2]
+            local inline = f.inline or f[3]
+            table.insert(out, { name = tostring(name), value = tostring(value), inline = not not inline })
         end
     end
-
     return out
 end
 
 ------------------------------------------------------------
--- FUNÇÃO PRINCIPAL
+-- FUNÇÃO PRINCIPAL DE ENVIO DE WEBHOOK
 ------------------------------------------------------------
-function sendEvent(eventType, fields, overrideOptions)
+
+local function sendEvent(eventType, fields, overrideOptions)
+    -- 1. Validação dos parâmetros de entrada
+    if type(eventType) ~= "string" or eventType == "" then
+        warn("❌ [sendEvent] Tipo de evento inválido ou ausente.")
+        return
+    end
+
     local config = eventConfigs[eventType]
     if not config then
-        warn("❌ Configuração não encontrada para o evento: " .. tostring(eventType))
+        warn("❌ [sendEvent] Configuração não encontrada para o evento: " .. eventType)
         return
     end
 
     local webhookUrl = config.webhookUrl
-    if not webhookUrl then
-        warn("❌ Webhook URL não definido para: " .. tostring(eventType))
+    if type(webhookUrl) ~= "string" or not webhookUrl:match("^https?://discord.com/api/webhooks/%d+/%w+") then
+        warn("❌ [sendEvent] Webhook URL inválido para o evento: " .. eventType .. ". Por favor, verifique-o no Discord.")
         return
     end
 
+    -- 2. Construção do Embed
+    local finalTitle     = (overrideOptions and overrideOptions.title) or config.title
+    local finalColor     = (overrideOptions and overrideOptions.color) or config.color
+    local finalThumbnail = (overrideOptions and overrideOptions.thumbnail) or config.thumbnail
+    local finalImage     = (overrideOptions and overrideOptions.image) or config.image
+    local finalFields    = buildFields(fields)
+
     local embed = {
-        title   = overrideOptions and overrideOptions.title or config.title,
-        color   = overrideOptions and overrideOptions.color or config.color,
-        fields  = Helpers.buildFields(fields),
+        title   = finalTitle,
+        color   = finalColor,
+        fields  = finalFields,
         footer  = { text = "Xesteer Community" }
     }
     
-    -- Adiciona thumbnail e imagem se existirem nas configurações ou overrides
-    if overrideOptions and overrideOptions.thumbnail then
-        embed.thumbnail = { url = overrideOptions.thumbnail }
-    elseif config.thumbnail then
-        embed.thumbnail = { url = config.thumbnail }
+    if finalThumbnail then
+        embed.thumbnail = { url = finalThumbnail }
     end
 
-    if overrideOptions and overrideOptions.image then
-        embed.image = { url = overrideOptions.image }
-    elseif config.image then
-        embed.image = { url = config.image }
+    if finalImage then
+        embed.image = { url = finalImage }
     end
 
     local payload = { embeds = { embed } }
     local jsonData = HttpService:JSONEncode(payload)
 
-    local ok, err = pcall(function()
+    -- 3. Envio da requisição com tratamento de erros.
+    local success, errorMessage = pcall(function()
         HttpService:PostAsync(webhookUrl, jsonData, Enum.HttpContentType.ApplicationJson)
     end)
 
-    if ok then
-        print("✅ Evento enviado: " .. (embed.title or eventType))
+    if success then
+        print("✅ Evento enviado com sucesso: " .. (finalTitle or eventType))
     else
-        warn("⚠️ Erro ao enviar webhook para o evento " .. eventType .. ": " .. tostring(err))
+        if errorMessage:match("429") then
+            warn("⚠️ [sendEvent] Erro de Rate-Limit (429) para o evento " .. eventType .. ". Aguardando 5 segundos e tentando novamente.")
+            task.wait(5)
+            success, errorMessage = pcall(function()
+                HttpService:PostAsync(webhookUrl, jsonData, Enum.HttpContentType.ApplicationJson)
+            end)
+            if success then
+                print("✅ Evento reenviado com sucesso após Rate-Limit: " .. (finalTitle or eventType))
+            else
+                warn("❌ [sendEvent] Falha no reenvio para " .. eventType .. ": " .. tostring(errorMessage))
+            end
+        else
+            warn("❌ [sendEvent] Erro fatal ao enviar webhook para o evento " .. eventType .. ": " .. tostring(errorMessage))
+        end
     end
 end
 
 ------------------------------------------------------------
 -- EXEMPLOS DE USO
+-- Esses exemplos demonstram como chamar a função `sendEvent`
+-- com os dados de um evento.
+-- Você precisará integrar esta chamada à sua lógica de jogo.
 ------------------------------------------------------------
 
--- Notificação da Ilha Miragem (usa as configurações padrão)
-sendEvent("MiragemIsland", {
-    {"Status", "Miragem Island foi ativada!"},
-    {"World", "3"},
-    {"Players", "10/12"},
-    {"Job-Id", "750dfe7b-0462-4ef0-b1e8-039daec4787c"},
-    {"Script", Helpers.codeBlock("lua", [[
-game:GetService("ReplicatedStorage")._ServerBrowser:InvokeServer("teleport", "750dfe7b-0462-4ef0-b1e8-039daec4787c")
-]])}
-})
+-- Notificação de uma Fruta Lendária spawnada
+-- Use esta função quando uma fruta for encontrada no jogo.
+local function onLegendaryFruitSpawned(fruitName, location, value)
+    sendEvent("FruitsSpawned", {
+        {"Fruta", fruitName},
+        {"Localização", location},
+        {"Valor", value}
+    }, {
+        title = "FRUTA LENDÁRIA ENCONTRADA!",
+        color = 0xFF4500 -- Cor Laranja
+    })
+end
 
--- Notificação de um Rare Boss (usa as configurações padrão)
-sendEvent("RareBoss", {
-    {"Boss", "Rip Indra"},
-    {"World", "3"},
-    {"Players", "9/12"},
-    {"Job-Id", "c1a2b3d4-xxxx-xxxx-xxxx-eeeeeeeeeeee"},
-    {"Script", Helpers.codeBlock("lua", [[
-game:GetService("ReplicatedStorage")._ServerBrowser:InvokeServer("teleport", "c1a2b3d4-xxxx-xxxx-xxxx-eeeeeeeeeeee")
-]])}
-})
+-- Exemplo de uso da função acima
+-- onLegendaryFruitSpawned("Dragon Fruit", "Sea 3 - Mansion", "Extremamente Rara")
 
--- Notificação de Lua Cheia (usa as configurações padrão)
-sendEvent("FullMoon", {
-    {"Status", "Lua cheia ativa no Sea 3!"}
-})
+-- Notificação de Boss Raro
+-- Use esta função quando um boss for spawnado.
+local function onRareBossSpawned(bossName, playersOnline, serverJobId)
+    sendEvent("RareBoss", {
+        {"Boss", bossName},
+        {"Players Online", tostring(playersOnline)},
+        {"Job-Id", serverJobId},
+        {"Teleport Script", codeBlock("lua", "game:GetService('ReplicatedStorage')._ServerBrowser:InvokeServer('teleport', '" .. serverJobId .. "')")}
+    })
+end
 
--- Exemplo com override (substituindo o título e a cor padrão)
-sendEvent("LegendHaki", {
-    {"Local", "Sea 2"},
-    {"Tempo", "Ativo agora"}
-}, {
-    title = "🚨 HAKI LENDÁRIO ENCONTRADO!",
-    color = 0xFF0000 -- Cor vermelha para chamar atenção
-})
+-- Exemplo de uso da função acima
+-- onRareBossSpawned("Rip Indra", 15, "c1a2b3d4-xxxx-xxxx-xxxx-eeeeeeeeeeee")
+
+-- Notificação de Evento de Lua
+-- Use esta função para notificar sobre a Lua Cheia.
+local function onFullMoonEvent()
+    sendEvent("FullMoon", {
+        {"Status", "A lua cheia apareceu! Corram para a Miragem Island!"},
+        {"Sea", "Sea 3"}
+    })
+end
+
+-- Exemplo de uso da função acima
+-- onFullMoonEvent()
+
+print("✅ O sistema de notificação do Discord está rodando e pronto para ser chamado por outros scripts!")
+
