@@ -1,0 +1,182 @@
+-- 🔔 Sistema de Notificações Discord (Versão 3.0)
+-- Autor: Xesteer | Melhorias por um grande modelo de linguagem
+-- Robusto, totalmente modular e com configurações detalhadas por evento.
+
+local HttpService = game:GetService("HttpService")
+
+------------------------------------------------------------
+-- ⚠️ AVISO DE SEGURANÇA ⚠️
+-- Nunca exponha seus webhooks em scripts de código aberto!
+-- Use ServerStorage ou um módulo de configuração privado.
+------------------------------------------------------------
+
+-- Mapeamento de todos os eventos com suas configurações específicas.
+local eventConfigs = {
+    MiragemIsland = {
+        webhookUrl = "https://discord.com/api/v10/webhooks/1413078808478613565/7Q2-Lo626ESJZyFukt75xLZJeVoZuGPUG4GIpatq62EqFpNQYARCUU0eo5QmI6Ott3v5",
+        title      = "🌫️ Miragem Island",
+        color      = 0x76B6C4, -- #76B6C4
+        thumbnail  = "https://i.imgur.com/mirage_icon.png"
+    },
+    KitsuneIsland = {
+        webhookUrl = "https://discord.com/api/webhooks/1407701317652185110/sEBbyWCmxqlpTHrKSszL_5oI2SwTY3Clra2gBbK3OlgNyuw3wbKZ6ISrV7m_GxWU11xL",
+        title      = "🦊 Kitsune Island",
+        color      = 0xFB882E, -- #FB882E
+        thumbnail  = "https://i.imgur.com/kitsune_icon.png"
+    },
+    PrehistoricIsland = {
+        webhookUrl = "https://discord.com/api/webhooks/1407701730556248116/IgZR5hYZwLtOBCQdIWkGSl4U_r1sycp7CfdJWOY3PaDCRypxqMkS7WBFcAn7Be3rCb1r",
+        title      = "🦖 Prehistoric Island",
+        color      = 0x48963D, -- #48963D
+        thumbnail  = "https://i.imgur.com/prehistoric_icon.png"
+    },
+    LegendHaki = {
+        webhookUrl = "https://discord.com/api/v10/webhooks/1413078435471036436/rEA7Tb7ySPGMOwOikg9NFBq6QeqQikeVFsuyNpBT1wn7GVi3JCYIAmeo7xELMzegWVQH",
+        title      = "💥 Legend Haki",
+        color      = 0x9852A9, -- #9852A9
+    },
+    LegendSword = {
+        webhookUrl = "https://discord.com/api/webhooks/1407701082930675812/tglxqyGteLn18BBqMrFkLH5jfxU2GGsitQfWWzvncLgNf0Vnpa5_7AFaV-sBWTDOEZhD",
+        title      = "🗡️ Legend Sword",
+        color      = 0x6E4C38, -- #6E4C38
+    },
+    RareBoss = {
+        webhookUrl = "https://discord.com/api/webhooks/1407701191483195416/KdqDN0ZytLCIGm2HXqgZygm9tc3gfTJSXahoGdCJYEL7FoBD5Npv2EOLoLVOn-jODQKm",
+        title      = "👹 Rare Boss Spawned",
+        color      = 0xE95F5D, -- #E95F5D
+        thumbnail  = "https://i.imgur.com/boss_icon.png"
+    },
+    FruitsSpawned = {
+        webhookUrl = "https://discord.com/api/webhooks/1407700809084305408/w35VXujuPp80AIhAd4lYmAt9jhRMIizmvgcGDYS0O7AyT6NmhTY9jwcYay0pWZ4tm7aT",
+        title      = "🍍 Fruits Spawned",
+        color      = 0xFFB90F, -- #FFB90F
+    },
+    FullMoon = {
+        webhookUrl = "https://discord.com/api/webhooks/1407700239045099540/8gEglTjK5b2KePmrtCTiapNl8r19pekDFDrnuplAw1GrE9zS_pRVKFYRZV-QykX3pVbZ",
+        title      = "🌕 Full Moon",
+        color      = 0xEEEEEE, -- #EEEEEE
+    },
+    NearFullMoon = {
+        webhookUrl = "https://discord.com/api/webhooks/1407700622316408872/YKDTHXD_Hx10ABACHWZrI7vQwaPVHzfl6zzdNkYJEHFzr6cNoYhTbI2qxU-tuk943eQ8",
+        title      = "🌖 Near Full Moon",
+        color      = 0xCCCCCC, -- #CCCCCC
+    },
+    -- Você pode adicionar mais eventos aqui!
+}
+
+------------------------------------------------------------
+-- MÓDULO AUXILIAR
+------------------------------------------------------------
+local Helpers = {}
+
+-- Formata texto como bloco de código
+function Helpers.codeBlock(lang, text)
+    lang = lang or ""
+    return string.format("```%s\n%s\n```", lang, text)
+end
+
+-- Normaliza os campos do Embed
+function Helpers.buildFields(rawFields)
+    local out = {}
+    if type(rawFields) ~= "table" then return out end
+
+    for _, f in ipairs(rawFields) do
+        if type(f) == "table" and (f.name and f.value) then
+            table.insert(out, { name = tostring(f.name), value = tostring(f.value), inline = not not f.inline })
+        elseif type(f) == "table" and #f >= 2 then
+            table.insert(out, { name = tostring(f[1]), value = tostring(f[2]), inline = not not f[3] })
+        end
+    end
+
+    return out
+end
+
+------------------------------------------------------------
+-- FUNÇÃO PRINCIPAL
+------------------------------------------------------------
+function sendEvent(eventType, fields, overrideOptions)
+    local config = eventConfigs[eventType]
+    if not config then
+        warn("❌ Configuração não encontrada para o evento: " .. tostring(eventType))
+        return
+    end
+
+    local webhookUrl = config.webhookUrl
+    if not webhookUrl then
+        warn("❌ Webhook URL não definido para: " .. tostring(eventType))
+        return
+    end
+
+    local embed = {
+        title   = overrideOptions and overrideOptions.title or config.title,
+        color   = overrideOptions and overrideOptions.color or config.color,
+        fields  = Helpers.buildFields(fields),
+        footer  = { text = "Xesteer Community" }
+    }
+    
+    -- Adiciona thumbnail e imagem se existirem nas configurações ou overrides
+    if overrideOptions and overrideOptions.thumbnail then
+        embed.thumbnail = { url = overrideOptions.thumbnail }
+    elseif config.thumbnail then
+        embed.thumbnail = { url = config.thumbnail }
+    end
+
+    if overrideOptions and overrideOptions.image then
+        embed.image = { url = overrideOptions.image }
+    elseif config.image then
+        embed.image = { url = config.image }
+    end
+
+    local payload = { embeds = { embed } }
+    local jsonData = HttpService:JSONEncode(payload)
+
+    local ok, err = pcall(function()
+        HttpService:PostAsync(webhookUrl, jsonData, Enum.HttpContentType.ApplicationJson)
+    end)
+
+    if ok then
+        print("✅ Evento enviado: " .. (embed.title or eventType))
+    else
+        warn("⚠️ Erro ao enviar webhook para o evento " .. eventType .. ": " .. tostring(err))
+    end
+end
+
+------------------------------------------------------------
+-- EXEMPLOS DE USO
+------------------------------------------------------------
+
+-- Notificação da Ilha Miragem (usa as configurações padrão)
+sendEvent("MiragemIsland", {
+    {"Status", "Miragem Island foi ativada!"},
+    {"World", "3"},
+    {"Players", "10/12"},
+    {"Job-Id", "750dfe7b-0462-4ef0-b1e8-039daec4787c"},
+    {"Script", Helpers.codeBlock("lua", [[
+game:GetService("ReplicatedStorage")._ServerBrowser:InvokeServer("teleport", "750dfe7b-0462-4ef0-b1e8-039daec4787c")
+]])}
+})
+
+-- Notificação de um Rare Boss (usa as configurações padrão)
+sendEvent("RareBoss", {
+    {"Boss", "Rip Indra"},
+    {"World", "3"},
+    {"Players", "9/12"},
+    {"Job-Id", "c1a2b3d4-xxxx-xxxx-xxxx-eeeeeeeeeeee"},
+    {"Script", Helpers.codeBlock("lua", [[
+game:GetService("ReplicatedStorage")._ServerBrowser:InvokeServer("teleport", "c1a2b3d4-xxxx-xxxx-xxxx-eeeeeeeeeeee")
+]])}
+})
+
+-- Notificação de Lua Cheia (usa as configurações padrão)
+sendEvent("FullMoon", {
+    {"Status", "Lua cheia ativa no Sea 3!"}
+})
+
+-- Exemplo com override (substituindo o título e a cor padrão)
+sendEvent("LegendHaki", {
+    {"Local", "Sea 2"},
+    {"Tempo", "Ativo agora"}
+}, {
+    title = "🚨 HAKI LENDÁRIO ENCONTRADO!",
+    color = 0xFF0000 -- Cor vermelha para chamar atenção
+})
