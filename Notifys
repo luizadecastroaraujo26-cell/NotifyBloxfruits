@@ -1,39 +1,128 @@
--- 🔔 Sistema de Notificações Discord (Versão 5.1 - Completa com Webhooks Originais)
--- Autor: Xesteer | Refatorado e otimizado
+-- Sistema Ultra Completo Blox Fruits - Executor
+-- Autor: Xesteer | Notificações de todos os eventos
+-- Minimalista, sem emojis, pronto para executor
 
 local HttpService = game:GetService("HttpService")
-local RunService = game:GetService("RunService") -- Para tasks assíncronas
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Players = game:GetService("Players")
+
+-- Webhooks
+local Webhooks = {
+    FruitsSpawned = "https://discord.com/api/webhooks/1407700809084305408/w35VXujuPp80AIhAd4lYmAt9jhRMIizmvgcGDYS0O7AyT6NmhTY9jwcYay0pWZ4tm7aT",
+    RareBoss = "https://discord.com/api/webhooks/1407701191483195416/KdqDN0ZytLCIGm2HXqgZygm9tc3gfTJSXahoGdCJYEL7FoBD5Npv2EOLoLVOn-jODQKm",
+    MiragemIsland = "https://discord.com/api/webhooks/1413078808478613565/7Q2-Lo626ESJZyFukt75xLZJeVoZuGPUG4GIpatq62EqFpNQYARCUU0eo5QmI6Ott3v5",
+    KitsuneIsland = "https://discord.com/api/webhooks/1407701317652185110/sEBbyWCmxqlpTHrKSszL_5oI2SwTY3Clra2gBbK3OlgNyuw3wbKZ6ISrV7m_GxWU11xL",
+    PrehistoricIsland = "https://discord.com/api/webhooks/1407701730556248116/IgZR5hYZwLtOBCQdIWkGSl4U_r1sycp7CfdJWOY3PaDCRypxqMkS7WBFcAn7Be3rCb1r",
+    LegendHaki = "https://discord.com/api/webhooks/1413078435471036436/rEA7Tb7ySPGMOwOikg9NFBq6QeqQikeVFsuyNpBT1wn7GVi3JCYIAmeo7xELMzegWVQH",
+    LegendSword = "https://discord.com/api/webhooks/1407701082930675812/tglxqyGteLn18BBqMrFkLH5jfxU2GGsitQfWWzvncLgNf0Vnpa5_7AFaV-sBWTDOEZhD",
+    FullMoon = "https://discord.com/api/webhooks/1407700239045099540/8gEglTjK5b2KePmrtCTiapNl8r19pekDFDrnuplAw1GrE9zS_pRVKFYRZV-QykX3pVbZ",
+    NearFullMoon = "https://discord.com/api/webhooks/1407700622316408872/YKDTHXD_Hx10ABACHWZrI7vQwaPVHzfl6zzdNkYJEHFzr6cNoYhTbI2qxU-tuk943eQ8"
+}
+
+-- Função de envio de webhook
+local function sendWebhook(eventType, description, fields, color)
+    local webhookUrl = Webhooks[eventType]
+    if not webhookUrl then return end
+    local payload = {
+        embeds = {
+            {
+                title = eventType:gsub("([A-Z])", " %1"):gsub("^ ", ""),
+                description = description,
+                fields = fields,
+                color = color or 5111808
+            }
+        }
+    }
+    task.spawn(function()
+        local success, err = pcall(function()
+            HttpService:PostAsync(webhookUrl, HttpService:JSONEncode(payload), Enum.HttpContentType.ApplicationJson)
+        end)
+        if not success then
+            warn("Falha ao enviar webhook: ".. tostring(err))
+        end
+    end)
+end
+
+-- Função auxiliar para campos padronizados
+local function defaultFields(jobId, extra)
+    local fields = {
+        { name = "Players", value = "```" .. #Players:GetPlayers() .. " players in the server```" },
+        { name = "Job-id", value = jobId },
+        { name = "Script", value = "```game:GetService('ReplicatedStorage')._ServerBrowser:InvokeServer('teleport', '"..jobId.."')```" }
+    }
+    if extra then
+        for _, v in ipairs(extra) do
+            table.insert(fields, v)
+        end
+    end
+    return fields
+end
 
 ------------------------------------------------------------
--- ⚠️ AVISO DE SEGURANÇA ⚠️
--- Nunca exponha seus webhooks em scripts públicos!
--- Use ServerStorage ou ModuleScripts privados para armazenar URLs.
+-- MONITORES DE EVENTOS
 ------------------------------------------------------------
 
--- CONFIGURAÇÃO DE EVENTOS COM WEBHOOKS ORIGINAIS
-local eventConfigs = {
-    MiragemIsland = {
-        webhookUrl = "https://discord.com/api/v10/webhooks/1413078808478613565/7Q2-Lo626ESJZyFukt75xLZJeVoZuGPUG4GIpatq62EqFpNQYARCUU0eo5QmI6Ott3v5",
-        title      = "🌫️ Miragem Island",
-        color      = 0x76B6C4,
-        thumbnail  = "https://i.imgur.com/mirage_icon.png"
-    },
-    KitsuneIsland = {
-        webhookUrl = "https://discord.com/api/webhooks/1407701317652185110/sEBbyWCmxqlpTHrKSszL_5oI2SwTY3Clra2gBbK3OlgNyuw3wbKZ6ISrV7m_GxWU11xL",
-        title      = "🦊 Kitsune Island",
-        color      = 0xFB882E,
-        thumbnail  = "https://i.imgur.com/kitsune_icon.png"
-    },
-    PrehistoricIsland = {
-        webhookUrl = "https://discord.com/api/webhooks/1407701730556248116/IgZR5hYZwLtOBCQdIWkGSl4U_r1sycp7CfdJWOY3PaDCRypxqMkS7WBFcAn7Be3rCb1r",
-        title      = "🦖 Prehistoric Island",
-        color      = 0x48963D,
-        thumbnail  = "https://i.imgur.com/prehistoric_icon.png"
-    },
-    LegendHaki = {
-        webhookUrl = "https://discord.com/api/v10/webhooks/1413078435471036436/rEA7Tb7ySPGMOwOikg9NFBq6QeqQikeVFsuyNpBT1wn7GVi3JCYIAmeo7xELMzegWVQH",
-        title      = "💥 Legend Haki",
-        color      = 0x9852A9
+-- Todas as frutas spawnadas
+local function monitorFruits()
+    local fruitsFolder = ReplicatedStorage:WaitForChild("_Game"):WaitForChild("Fruits")
+    fruitsFolder.ChildAdded:Connect(function(fruit)
+        sendWebhook("FruitsSpawned", "{Fruit Name\nFruits On the floor}", defaultFields(tostring(game.JobId)))
+    end)
+end
+
+-- Todos os bosses raros, incluindo Red Command
+local function monitorRareBoss()
+    local bossFolder = ReplicatedStorage:WaitForChild("_Game"):WaitForChild("RareBosses")
+    bossFolder.ChildAdded:Connect(function(boss)
+        sendWebhook("RareBoss", "{Boss Name: "..boss.Name.."}", defaultFields(tostring(game.JobId)), 16711680)
+    end)
+end
+
+-- Ilhas Especiais
+local function monitorIslands()
+    local islands = {"MiragemIsland", "KitsuneIsland", "PrehistoricIsland"}
+    for _, island in ipairs(islands) do
+        local folder = ReplicatedStorage:WaitForChild("_Game"):WaitForChild(island)
+        folder.ChildAdded:Connect(function(_)
+            sendWebhook(island, "{Island Spawned}", defaultFields(tostring(game.JobId)), 32768)
+        end)
+    end
+end
+
+-- Legend Haki e Legend Sword
+local function monitorLegends()
+    local legendHaki = ReplicatedStorage:WaitForChild("_Game"):WaitForChild("LegendHaki")
+    legendHaki.ChildAdded:Connect(function(_)
+        sendWebhook("LegendHaki", "{Legend Haki Spawned}", defaultFields(tostring(game.JobId)), 8388736)
+    end)
+    local legendSword = ReplicatedStorage:WaitForChild("_Game"):WaitForChild("LegendSword")
+    legendSword.ChildAdded:Connect(function(_)
+        sendWebhook("LegendSword", "{Legend Sword Spawned}", defaultFields(tostring(game.JobId)), 13434828)
+    end)
+end
+
+-- Lua cheia e quase cheia
+local function monitorMoon()
+    local moon = ReplicatedStorage:WaitForChild("_Game"):WaitForChild("MoonStatus")
+    moon.Changed:Connect(function(status)
+        if status == "FullMoon" then
+            sendWebhook("FullMoon", "{Full Moon Event}", defaultFields(tostring(game.JobId)), 16777215)
+        elseif status == "NearFullMoon" then
+            sendWebhook("NearFullMoon", "{Near Full Moon Event}", defaultFields(tostring(game.JobId)), 12632256)
+        end
+    end)
+end
+
+------------------------------------------------------------
+-- INICIALIZAÇÃO DE TODOS OS MONITORES
+------------------------------------------------------------
+task.spawn(monitorFruits)
+task.spawn(monitorRareBoss)
+task.spawn(monitorIslands)
+task.spawn(monitorLegends)
+task.spawn(monitorMoon)
+
+print("✅ Sistema ultra completo Blox Fruits ativo! Todos os eventos serão notificados.")
     },
     LegendSword = {
         webhookUrl = "https://discord.com/api/webhooks/1407701082930675812/tglxqyGteLn18BBqMrFkLH5jfxU2GGsitQfWWzvncLgNf0Vnpa5_7AFaV-sBWTDOEZhD",
